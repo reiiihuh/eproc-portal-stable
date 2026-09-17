@@ -15,6 +15,11 @@ export type PortalUser = {
   email: string;
   name: string;
   picture?: string;
+  division?: string;
+  position?: string;
+  location?: string;
+  masterPicId?: string;
+  profileComplete?: boolean;
 };
 
 export type DocumentRequirement = {
@@ -54,6 +59,8 @@ export type PortalRequest = {
   requesterName?: string;
   requesterEmail?: string;
   division?: string;
+  position?: string;
+  location?: string;
   createdAt?: string;
   submittedAt?: string;
   updatedAt?: string;

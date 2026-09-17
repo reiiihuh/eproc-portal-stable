@@ -12,6 +12,8 @@ function createHarness(status) {
   vm.runInContext(source, context);
   context.portalWithLock_ = callback => callback();
   context.portalIdentity_ = () => ({ userId: "USER-1", email: "requester@example.com", name: "Requester" });
+  context.portalRequireCompleteProfile_ = () => ({ DISPLAY_NAME: "Requester", DIVISION: "IT", POSITION: "Officer", LOCATION: "Head Office" });
+  context.portalEnsureSheetHeaders_ = () => undefined;
   context.portalOwnedRequest_ = () => request;
   context.portalRows_ = () => [{ REQUEST_ID: request.REQUEST_ID, IS_REQUIRED: true, CURRENT_VERSION_NUMBER: 1 }];
   context.portalUpdateOne_ = (_sheet, _key, _id, changes) => {

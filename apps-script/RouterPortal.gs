@@ -7,6 +7,8 @@ function tryPortalRoute_(request) {
   var action = String(request.action || body.action || "").trim().toLowerCase();
   switch (action) {
     case "createdraft": return portalCreateDraft_(body);
+    case "getmyprofile": return portalGetMyProfile_(body);
+    case "savemyprofile": return portalSaveMyProfile_(body);
     case "listmyrequests": return portalListMyRequests_(body);
     case "getrequestdetail": return portalGetRequestDetail_(body);
     case "uploaddocument": return portalUploadDocument_(body);

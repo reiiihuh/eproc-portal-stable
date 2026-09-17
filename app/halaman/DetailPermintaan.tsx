@@ -29,7 +29,7 @@ export function DetailPermintaan({
 
   return (
     <div className="page">
-      <button className="back" onClick={onBack}><ArrowLeft size={16} /> Back to My Requests</button>
+      <button className="back" onClick={onBack}><ArrowLeft size={16} /> Kembali ke My Requests</button>
       <header className="detailhead">
         <div><span className="eyebrow">{request.number}</span><h1>{request.requestType}</h1><p>{request.requesterName || "Requester"}{request.division ? ` · ${request.division}` : ""}</p></div>
         <LabelStatus status={request.status} />
@@ -82,6 +82,9 @@ export function DetailPermintaan({
             <div className="panelhead"><h2>Request Info</h2></div>
             <dl className="request-info">
               <div><dt>Requester</dt><dd>{request.requesterName || "—"}</dd><small>{request.requesterEmail}</small></div>
+              <div><dt>Divisi</dt><dd>{request.division || "—"}</dd></div>
+              <div><dt>Jabatan</dt><dd>{request.position || "—"}</dd></div>
+              <div><dt>Lokasi</dt><dd>{request.location || "—"}</dd></div>
               <div><dt>Submitted</dt><dd>{formatDate(request.submittedAt)}</dd></div>
               <div><dt>Last updated</dt><dd>{formatDate(request.updatedAt)}</dd></div>
               {request.notes && <div><dt>Notes</dt><dd>{request.notes}</dd></div>}

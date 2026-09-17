@@ -12,6 +12,9 @@ function createHarness() {
     "Request ID Asli",
     "Nama",
     "Alamat Email User",
+    "Group/Div",
+    "Lvl Jabatan",
+    "Lokasi",
     "Tanggal Request",
     "Jenis Permintaan",
     "Status",
@@ -26,6 +29,9 @@ function createHarness() {
     REQUEST_TYPE: "Pengadaan Baru",
     REQUESTER_NAME: "Requester Nano",
     REQUESTER_EMAIL: "requester@example.com",
+    REQUESTER_DIVISION: "Information Technology",
+    REQUESTER_POSITION: "Officer",
+    REQUESTER_LOCATION: "Head Office",
     SUBMITTED_AT: new Date("2026-09-14T02:00:00Z"),
     CURRENT_STATUS: "PROCUREMENT_REVIEW",
     ROW_VERSION: 4,
@@ -37,6 +43,7 @@ function createHarness() {
     getRange: (row, column) => ({
       getDisplayValues: () => [headers],
       setValue: value => { masterRows[row - 2][column - 1] = value; },
+      setNumberFormat: () => undefined,
     }),
     getDataRange: () => ({ getValues: () => [headers, ...masterRows], getDisplayValues: () => [headers, ...masterRows] }),
     appendRow: row => masterRows.push(row),
@@ -45,6 +52,8 @@ function createHarness() {
   vm.runInContext(source, context);
   context.PORTAL_SHEETS_ = { requests: "PORTAL_REQUESTS", documents: "PORTAL_DOCUMENTS" };
   context.SpreadsheetApp = { flush: () => undefined };
+  context.Session = { getScriptTimeZone: () => "Asia/Jakarta" };
+  context.Utilities = { formatDate: () => "2026-09-14" };
   context.getSpreadsheet_ = () => ({ getSheetByName: name => name === "MASTER DATABASE PENGADAAN" ? sheet : null });
   context.portalRows_ = name => name === "PORTAL_DOCUMENTS" ? documents : name === "PORTAL_REQUESTS" ? [request] : [];
   context.portalTrue_ = value => value === true || String(value).toLowerCase() === "true";
@@ -136,6 +145,10 @@ for (const action of ["approveRequest", "submitReview"]) {
     assert.equal(master["Request ID Asli"], "NPR-2026-0001");
     assert.equal(master["Nomor Request"], "PROC-2026-0001");
     assert.equal(master.Status, "Ongoing");
+    assert.equal(master["Group/Div"], "Information Technology");
+    assert.equal(master["Lvl Jabatan"], "Officer");
+    assert.equal(master.Lokasi, "Head Office");
+    assert.equal(Object.prototype.toString.call(master["Tanggal Request"]), "[object Date]");
     assert.equal(request.MASTER_REQUEST_ID, "PROC-2026-0001");
     assert.equal(request.CURRENT_STATUS, "IN_PROCESS");
     assert.deepEqual(logs.map(log => log.eventType), ["REQUEST_APPROVED", "PROMOTED_TO_PROCUREMENT"]);

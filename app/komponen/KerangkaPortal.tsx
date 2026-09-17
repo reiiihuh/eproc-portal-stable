@@ -12,6 +12,7 @@ export function KerangkaPortal({
   menuOpen,
   setMenuOpen,
   onNavigate,
+  onProfile,
   onLogout,
   children,
 }: {
@@ -20,6 +21,7 @@ export function KerangkaPortal({
   menuOpen: boolean;
   setMenuOpen: (open: boolean) => void;
   onNavigate: (page: "requests" | "submit") => void;
+  onProfile: () => void;
   onLogout: () => void;
   children: React.ReactNode;
 }) {
@@ -34,6 +36,7 @@ export function KerangkaPortal({
         onClose={() => setMenuOpen(false)}
         onToggleCollapsed={() => setSidebarCollapsed(collapsed => !collapsed)}
         onNavigate={onNavigate}
+        onProfile={onProfile}
         onLogout={onLogout}
       />
       <main className="workspace">

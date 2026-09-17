@@ -36,13 +36,14 @@ function authorizePortalServices() {
 
 function portalCreateDraft_(body) {
   body = portalBody_(body);
+  var actor = portalIdentity_(body);
   return portalWithLock_(function () {
-    var actor = portalIdentity_(body);
+    portalEnsureSheetHeaders_(PORTAL_SHEETS_.requests, ["REQUESTER_POSITION", "REQUESTER_LOCATION"]);
     var requestType = portalRequestTypeLabel_(body.requestType);
     var now = new Date();
     var requestId = "REQ-" + Utilities.getUuid();
     var requestNumber = portalNextRequestNumber_();
-    var user = portalUpsertUser_(actor, now);
+    var user = portalRequireCompleteProfile_(actor, now);
     var request = portalAppend_(PORTAL_SHEETS_.requests, {
       REQUEST_ID: requestId,
       REQUEST_NUMBER: requestNumber,
@@ -51,6 +52,8 @@ function portalCreateDraft_(body) {
       REQUESTER_EMAIL: actor.email,
       REQUESTER_NAME: actor.name,
       REQUESTER_DIVISION: user.DIVISION || "",
+      REQUESTER_POSITION: user.POSITION || "",
+      REQUESTER_LOCATION: user.LOCATION || "",
       REQUESTER_NOTES: String(body.notes || "").trim(),
       CURRENT_STATUS: "DRAFT",
       LAST_UPDATED_AT: now,
@@ -168,8 +171,10 @@ function portalUploadDocument_(body) {
 
 function portalSubmitRequest_(body) {
   body = portalBody_(body);
+  var actor = portalIdentity_(body);
   return portalWithLock_(function () {
-    var actor = portalIdentity_(body);
+    portalEnsureSheetHeaders_(PORTAL_SHEETS_.requests, ["REQUESTER_POSITION", "REQUESTER_LOCATION"]);
+    var user = portalRequireCompleteProfile_(actor, new Date());
     var request = portalOwnedRequest_(body.requestId, actor);
     var requestStatus = String(request.CURRENT_STATUS || "").toUpperCase();
     if (["DRAFT", "NEED_CLARIFICATION", "REJECTED"].indexOf(requestStatus) < 0) throw new Error("INVALID_STATUS_TRANSITION: Request dengan status " + requestStatus + " tidak dapat dikirim ulang.");
@@ -180,6 +185,10 @@ function portalSubmitRequest_(body) {
     var previousStatus = request.CURRENT_STATUS;
     var updated = portalUpdateOne_(PORTAL_SHEETS_.requests, "REQUEST_ID", request.REQUEST_ID, {
       CURRENT_STATUS: "SUBMITTED",
+      REQUESTER_NAME: user.DISPLAY_NAME || actor.name,
+      REQUESTER_DIVISION: user.DIVISION || "",
+      REQUESTER_POSITION: user.POSITION || "",
+      REQUESTER_LOCATION: user.LOCATION || "",
       SUBMITTED_AT: now,
       LAST_UPDATED_AT: now,
       UPDATED_AT: now,
@@ -248,9 +257,174 @@ function portalIdentity_(body) {
 }
 
 function portalUpsertUser_(actor, now) {
+  portalEnsureSheetHeaders_(PORTAL_SHEETS_.users, ["DIVISION", "POSITION", "LOCATION", "MASTER_PIC_ID", "PROFILE_COMPLETE"]);
   var user = portalFind_(PORTAL_SHEETS_.users, "EMAIL", actor.email, true);
   if (!user) return portalAppend_(PORTAL_SHEETS_.users, { USER_ID: actor.userId, EMAIL: actor.email, DISPLAY_NAME: actor.name, ROLE: "REQUESTER", ACTIVE: true, AUTH_PROVIDER: "GOOGLE", LAST_LOGIN_AT: now, CREATED_AT: now, UPDATED_AT: now });
   return portalUpdateOne_(PORTAL_SHEETS_.users, "EMAIL", actor.email, { USER_ID: actor.userId, DISPLAY_NAME: actor.name, ACTIVE: true, AUTH_PROVIDER: "GOOGLE", LAST_LOGIN_AT: now, UPDATED_AT: now }, true);
+}
+
+function portalGetMyProfile_(body) {
+  var actor = portalIdentity_(portalBody_(body));
+  return portalWithLock_(function () {
+    var user = portalResolveProfile_(actor, new Date());
+    return { ok: true, data: portalProfileDto_(user) };
+  });
+}
+
+function portalSaveMyProfile_(body) {
+  body = portalBody_(body);
+  var actor = portalIdentity_(body);
+  var division = String(body.division || "").trim();
+  var position = String(body.position || "").trim();
+  var location = String(body.location || "").trim();
+  if (!division || !position || !location) throw new Error("PROFILE_INCOMPLETE: Divisi, jabatan, dan lokasi wajib diisi.");
+  return portalWithLock_(function () {
+    var profile = portalUpsertMasterPic_(actor, { division: division, position: position, location: location });
+    var user = portalPersistProfile_(actor, profile, new Date());
+    return { ok: true, data: portalProfileDto_(user) };
+  });
+}
+
+function portalRequireCompleteProfile_(actor, now) {
+  var user = portalResolveProfile_(actor, now);
+  if (!portalTrue_(user.PROFILE_COMPLETE)) throw new Error("PROFILE_REQUIRED: Lengkapi divisi, jabatan, dan lokasi pada profil sebelum mengajukan request.");
+  return user;
+}
+
+function portalResolveProfile_(actor, now) {
+  var master = portalFindMasterPicByEmail_(actor.email);
+  if (master) return portalPersistProfile_(actor, master, now);
+  var user = portalUpsertUser_(actor, now);
+  return portalPersistProfile_(actor, {
+    picId: user.MASTER_PIC_ID || "",
+    name: user.DISPLAY_NAME || actor.name,
+    email: actor.email,
+    division: user.DIVISION || "",
+    position: user.POSITION || "",
+    location: user.LOCATION || "",
+    active: true
+  }, now);
+}
+
+function portalPersistProfile_(actor, profile, now) {
+  var complete = Boolean(String(profile.picId || "").trim() && profile.active !== false && String(profile.division || "").trim() && String(profile.position || "").trim() && String(profile.location || "").trim());
+  portalEnsureSheetHeaders_(PORTAL_SHEETS_.users, ["DIVISION", "POSITION", "LOCATION", "MASTER_PIC_ID", "PROFILE_COMPLETE"]);
+  var user = portalFind_(PORTAL_SHEETS_.users, "EMAIL", actor.email, true);
+  var values = {
+    USER_ID: actor.userId,
+    EMAIL: actor.email,
+    DISPLAY_NAME: String(profile.name || actor.name),
+    ROLE: user && user.ROLE ? user.ROLE : "REQUESTER",
+    ACTIVE: profile.active !== false,
+    AUTH_PROVIDER: "GOOGLE",
+    DIVISION: String(profile.division || ""),
+    POSITION: String(profile.position || ""),
+    LOCATION: String(profile.location || ""),
+    MASTER_PIC_ID: String(profile.picId || ""),
+    PROFILE_COMPLETE: complete,
+    LAST_LOGIN_AT: now,
+    UPDATED_AT: now
+  };
+  if (!user) {
+    values.CREATED_AT = now;
+    return portalAppend_(PORTAL_SHEETS_.users, values);
+  }
+  return portalUpdateOne_(PORTAL_SHEETS_.users, "EMAIL", actor.email, values, true);
+}
+
+function portalProfileDto_(user) {
+  return {
+    email: String(user.EMAIL || ""),
+    name: String(user.DISPLAY_NAME || user.EMAIL || ""),
+    division: String(user.DIVISION || ""),
+    position: String(user.POSITION || ""),
+    location: String(user.LOCATION || ""),
+    masterPicId: String(user.MASTER_PIC_ID || ""),
+    profileComplete: portalTrue_(user.PROFILE_COMPLETE)
+  };
+}
+
+function portalFindMasterPicByEmail_(email) {
+  var context = portalMasterPicContext_();
+  var expected = portalEmail_(email);
+  var row = context.rows.filter(function (item) { return portalEmail_(item.Email) === expected; })[0];
+  if (!row) return null;
+  var inactive = ["TIDAK AKTIF", "INACTIVE", "NONAKTIF"].indexOf(String(row.Status || "").trim().toUpperCase()) >= 0;
+  return {
+    picId: row["PIC ID"] || "",
+    name: row["Nama PIC"] || "",
+    email: row.Email || email,
+    division: row["Group/Divisi"] || row["Group/Div"] || "",
+    position: row.Jabatan || row["Lvl Jabatan"] || "",
+    location: row.Lokasi || "",
+    active: !inactive
+  };
+}
+
+function portalUpsertMasterPic_(actor, profile) {
+  var context = portalMasterPicContext_();
+  var sheet = context.sheet;
+  var existing = context.rows.filter(function (row) { return portalEmail_(row.Email) === actor.email; })[0];
+  var picId = existing && existing["PIC ID"] ? String(existing["PIC ID"]) : "PIC-" + Utilities.getUuid().slice(0, 8).toUpperCase();
+  var values = {
+    "PIC ID": picId,
+    "Nama PIC": actor.name,
+    "Group/Divisi": profile.division,
+    "Jabatan": profile.position,
+    "Lokasi": profile.location,
+    "Email": actor.email,
+    "Status": "Aktif"
+  };
+  if (existing) {
+    Object.keys(values).forEach(function (header) {
+      var column = context.headers.indexOf(header);
+      if (column >= 0) sheet.getRange(existing.__rowNumber, column + 1).setValue(values[header]);
+    });
+  } else {
+    sheet.appendRow(context.headers.map(function (header) { return values[header] === undefined ? "" : values[header]; }));
+  }
+  return { picId: picId, name: actor.name, email: actor.email, division: profile.division, position: profile.position, location: profile.location, active: true };
+}
+
+function portalMasterPicContext_() {
+  var sheet = getSpreadsheet_().getSheetByName("MASTER PIC");
+  if (!sheet) throw new Error("SHEET_NOT_FOUND: MASTER PIC.");
+  var values = sheet.getDataRange().getValues();
+  var display = sheet.getDataRange().getDisplayValues();
+  var headerIndex = -1;
+  for (var index = 0; index < Math.min(display.length, 20); index++) {
+    var candidate = display[index].map(function (value) { return String(value || "").trim(); });
+    if (candidate.indexOf("Nama PIC") >= 0 && candidate.indexOf("Email") >= 0) { headerIndex = index; break; }
+  }
+  if (headerIndex < 0) throw new Error("MASTER_HEADER_REQUIRED: MASTER PIC membutuhkan header Nama PIC dan Email.");
+  var headers = display[headerIndex].map(function (value) { return String(value || "").trim(); });
+  var required = ["PIC ID", "Nama PIC", "Group/Divisi", "Jabatan", "Lokasi", "Email", "Status"];
+  required.forEach(function (header) {
+    if (headers.indexOf(header) < 0) {
+      var column = sheet.getLastColumn() + 1;
+      sheet.getRange(headerIndex + 1, column).setValue(header);
+      headers[column - 1] = header;
+    }
+  });
+  values = sheet.getDataRange().getValues();
+  var rows = values.slice(headerIndex + 1).map(function (row, rowIndex) {
+    var result = { __rowNumber: headerIndex + rowIndex + 2 };
+    headers.forEach(function (header, column) { result[header] = row[column]; });
+    return result;
+  }).filter(function (row) { return row.Email || row["Nama PIC"]; });
+  return { sheet: sheet, headers: headers, headerRow: headerIndex + 1, rows: rows };
+}
+
+function portalEnsureSheetHeaders_(sheetName, required) {
+  var sheet = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) throw new Error("SHEET_NOT_FOUND: " + sheetName);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return String(value || "").trim(); });
+  required.forEach(function (header) {
+    if (headers.indexOf(header) < 0) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(header);
+      headers.push(header);
+    }
+  });
 }
 
 function portalOwnedRequest_(requestId, actor) {

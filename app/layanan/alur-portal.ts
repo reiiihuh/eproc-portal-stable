@@ -29,6 +29,7 @@ export function useAlurPortal() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [processing, setProcessing] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [profileChecked, setProfileChecked] = useState(false);
   const requestRefreshActive = useRef(false);
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export function useAlurPortal() {
     }, 0);
     fetch("/api/config")
       .then(async (response) => await response.json() as RuntimeConfig)
-      .then(setRuntime)
+      .then(value => { setRuntime(value); if (!value.backendConfigured) setProfileChecked(true); })
       .catch(() => setNotice({ kind: "error", text: "Konfigurasi portal gagal dimuat." }));
     return () => {
       window.clearTimeout(splashTimer);
@@ -48,8 +49,24 @@ export function useAlurPortal() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user || !runtime.backendConfigured || profileChecked) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      portalApi.getMyProfile().then(profile => {
+        if (!active) return;
+        const merged = { ...user, ...profile, picture: user.picture };
+        sessionStorage.setItem("nano_portal_user", JSON.stringify(merged));
+        setUser(merged);
+      }).catch(error => {
+        if (active) setNotice({ kind: "error", text: error instanceof Error ? error.message : "Profil gagal dimuat." });
+      }).finally(() => { if (active) setProfileChecked(true); });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [user, runtime.backendConfigured, profileChecked]);
+
   const loadRequests = useCallback(async (silent = false) => {
-    if (!user || !runtime.backendConfigured || requestRefreshActive.current) return;
+    if (!user || !profileChecked || !user.profileComplete || !runtime.backendConfigured || requestRefreshActive.current) return;
     requestRefreshActive.current = true;
     if (!silent) setLoading(true);
     try {
@@ -66,7 +83,7 @@ export function useAlurPortal() {
       requestRefreshActive.current = false;
       if (!silent) setLoading(false);
     }
-  }, [user, runtime.backendConfigured]);
+  }, [user, profileChecked, runtime.backendConfigured]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadRequests(), 0);
@@ -121,6 +138,7 @@ export function useAlurPortal() {
     if (idToken) sessionStorage.setItem("nano_google_id_token", idToken);
     else sessionStorage.removeItem("nano_google_id_token");
     sessionStorage.setItem("nano_portal_user", JSON.stringify(nextUser));
+    setProfileChecked(!idToken);
     setUser(nextUser);
     setNotice(null);
   }, []);
@@ -133,6 +151,23 @@ export function useAlurPortal() {
     setRequests([]);
     setSelected(null);
     setPage("requests");
+    setProfileChecked(false);
+  }
+
+  async function saveProfile(profile: Pick<PortalUser, "division" | "position" | "location">) {
+    if (!user) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const saved = await portalApi.saveMyProfile(profile);
+      const merged = { ...user, ...saved, picture: user.picture };
+      sessionStorage.setItem("nano_portal_user", JSON.stringify(merged));
+      setUser(merged);
+      setNotice({ kind: "success", text: "Profil tersimpan dan terdaftar di MASTER PIC." });
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Profil gagal disimpan." });
+      throw error;
+    } finally { setBusy(false); }
   }
 
   function navigate(next: "requests" | "submit") {
@@ -251,8 +286,8 @@ export function useAlurPortal() {
   }
 
   return {
-    splash, user, runtime, config, requests, page, selected, loading, busy,
+    splash, user, profileChecked, runtime, config, requests, page, selected, loading, busy,
     menuOpen, setMenuOpen, processing, notice, setNotice, login, logout,
-    navigate, openRequest, saveDraft, submitNew, replaceDocument, submitExisting,
+    navigate, openRequest, saveProfile, saveDraft, submitNew, replaceDocument, submitExisting,
   };
 }

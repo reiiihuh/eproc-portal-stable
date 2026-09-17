@@ -3,6 +3,7 @@ import type {
   PortalConfig,
   PortalDocument,
   PortalRequest,
+  PortalUser,
   StatusLog,
 } from "../tipe/data-portal";
 
@@ -88,6 +89,8 @@ function mapRequest(row: JsonRow, documents: JsonRow[] = [], logs: JsonRow[] = [
     requestType: requestTypeLabel(text(row, "REQUEST_TYPE", "requestType", "type")), status: statusLabel(text(row, "CURRENT_STATUS", "status") || "Draft"),
     notes: text(row, "NOTES", "notes") || undefined, requesterName: text(row, "REQUESTER_NAME", "requesterName") || undefined,
     requesterEmail: text(row, "REQUESTER_EMAIL", "requesterEmail") || undefined, division: text(row, "REQUESTER_DIVISION", "DIVISION", "requesterDivision", "division") || undefined,
+    position: text(row, "REQUESTER_POSITION", "POSITION", "requesterPosition", "position") || undefined,
+    location: text(row, "REQUESTER_LOCATION", "LOCATION", "requesterLocation", "location") || undefined,
     createdAt: text(row, "CREATED_AT", "createdAt") || undefined, submittedAt: text(row, "SUBMITTED_AT", "submittedAt") || undefined,
     updatedAt: text(row, "LAST_UPDATED_AT", "UPDATED_AT", "updatedAt") || undefined,
     driveFolderUrl: text(row, "DRIVE_FOLDER_URL", "FOLDER_URL", "driveFolderUrl") || undefined,
@@ -105,6 +108,12 @@ function mapEnvelope(data: JsonRow): PortalRequest {
 }
 
 export const portalApi = {
+  async getMyProfile() {
+    return await invoke("getMyProfile") as PortalUser;
+  },
+  async saveMyProfile(profile: Pick<PortalUser, "division" | "position" | "location">) {
+    return await invoke("saveMyProfile", profile) as PortalUser;
+  },
   async getConfig(): Promise<PortalConfig> {
     const cacheKey = "nano_portal_config_v1";
     if (typeof window !== "undefined") {

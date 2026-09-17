@@ -15,6 +15,10 @@ function tryProcurementRoute_(request) {
   if (body.payload && typeof body.payload === "object") body = body.payload;
   var action = String(request.action || body.action || "").trim().toLowerCase();
   switch (action) {
+    // Alias profil ditempatkan di modul ini agar deployment dengan RouterPortal
+    // versi lama tetap dapat mengenali action profil.
+    case "getmyprofile": return portalGetMyProfile_(body);
+    case "savemyprofile": return portalSaveMyProfile_(body);
     case "getprocurementsession": return procurementSession_(body);
     case "listreviewqueue": return procurementListQueue_(body);
     case "getprocurementrequestdetail": return procurementGetDetail_(body);
@@ -40,8 +44,9 @@ function tryProcurementRoute_(request) {
 // Jalankan sekali dari editor Apps Script; hanya menambah header pada sheet PORTAL_*.
 function ensureProcurementPortalSchema() {
   var additions = {};
-  additions[PORTAL_SHEETS_.requests] = ["MASTER_REQUEST_ID", "PO_NUMBER", "PO_URL"];
+  additions[PORTAL_SHEETS_.requests] = ["MASTER_REQUEST_ID", "PO_NUMBER", "PO_URL", "REQUESTER_POSITION", "REQUESTER_LOCATION"];
   additions[PORTAL_SHEETS_.documents] = ["REVIEWED_AT", "REVIEWED_BY"];
+  additions[PORTAL_SHEETS_.users] = ["DIVISION", "POSITION", "LOCATION", "MASTER_PIC_ID", "PROFILE_COMPLETE"];
   Object.keys(additions).forEach(function (sheetName) {
     var sheet = getSpreadsheet_().getSheetByName(sheetName);
     if (!sheet) throw new Error("SHEET_NOT_FOUND: " + sheetName);
@@ -49,6 +54,23 @@ function ensureProcurementPortalSchema() {
     additions[sheetName].forEach(function (header) { if (headers.indexOf(header) < 0) { sheet.getRange(1, sheet.getLastColumn() + 1).setValue(header); headers.push(header); } });
   });
   return "Schema PORTAL_* siap.";
+}
+
+// Jalankan sekali setelah deploy untuk merapikan tanggal pada baris master lama.
+// Promotion baru sudah otomatis memakai format yang sama.
+function normalizeMasterRequestDates() {
+  var sheet = getSpreadsheet_().getSheetByName("MASTER DATABASE PENGADAAN");
+  if (!sheet) throw new Error("SHEET_NOT_FOUND: MASTER DATABASE PENGADAAN.");
+  var context = procurementMasterContext_(sheet);
+  var column = context.headers.indexOf("Tanggal Request");
+  if (column < 0) throw new Error("MASTER_HEADER_REQUIRED: Header Tanggal Request tidak ditemukan.");
+  var rowCount = Math.max(0, sheet.getLastRow() - context.headerRow);
+  if (!rowCount) return "Tidak ada tanggal yang perlu dinormalisasi.";
+  var range = sheet.getRange(context.headerRow + 1, column + 1, rowCount, 1);
+  var values = range.getValues().map(function (row) { return [row[0] ? procurementDateOnly_(row[0]) : ""]; });
+  range.setValues(values);
+  range.setNumberFormat("dd-mmm-yyyy");
+  return rowCount + " baris Tanggal Request sudah dinormalisasi.";
 }
 
 function procurementSession_(body) {
@@ -511,6 +533,7 @@ function procurementPromoteApproved_(request, actor, now, approval) {
     : hasOriginalRequestId
       ? procurementNextMasterId_(sheet, headers, masterContext.headerRow)
       : String(request.REQUEST_NUMBER);
+  var requestDate = procurementDateOnly_(request.SUBMITTED_AT || request.CREATED_AT || now);
   if (!existing) {
     var values = {
       "Nomor Request": masterId,
@@ -518,7 +541,9 @@ function procurementPromoteApproved_(request, actor, now, approval) {
       "Nama": request.REQUESTER_NAME,
       "Alamat Email User": request.REQUESTER_EMAIL,
       "Group/Div": request.REQUESTER_DIVISION || "",
-      "Tanggal Request": request.SUBMITTED_AT || request.CREATED_AT,
+      "Lvl Jabatan": request.REQUESTER_POSITION || "",
+      "Lokasi": request.REQUESTER_LOCATION || "",
+      "Tanggal Request": requestDate,
       "Bentuk": request.REQUEST_TYPE,
       "Jenis Permintaan": request.REQUEST_TYPE,
       "Item": request.REQUEST_TYPE,
@@ -527,6 +552,7 @@ function procurementPromoteApproved_(request, actor, now, approval) {
       "Keterangan Status": "Disetujui melalui Portal Procurement"
     };
     sheet.appendRow(headers.map(function (header) { return values[header] === undefined ? "" : values[header]; }));
+    procurementFormatMasterRequestDate_(sheet, sheet.getLastRow(), headers, requestDate);
     SpreadsheetApp.flush();
   } else {
     var existingStatus = String(existing.Status || "").trim().toUpperCase();
@@ -534,6 +560,7 @@ function procurementPromoteApproved_(request, actor, now, approval) {
     if (statusColumn >= 0 && (!existingStatus || existingStatus === "UPCOMING")) {
       sheet.getRange(existing.__rowNumber, statusColumn + 1).setValue("Ongoing");
     }
+    procurementFormatMasterRequestDate_(sheet, existing.__rowNumber, headers, requestDate);
   }
   var updated = portalUpdateOne_(PORTAL_SHEETS_.requests, "REQUEST_ID", request.REQUEST_ID, { MASTER_REQUEST_ID: masterId, CURRENT_STATUS: "IN_PROCESS", LAST_UPDATED_AT: now, UPDATED_AT: now, UPDATED_BY: actor.email, ROW_VERSION: Number(request.ROW_VERSION || 0) + 1 });
   Object.keys(updated).forEach(function (key) { request[key] = updated[key]; });
@@ -694,9 +721,23 @@ function procurementDetail_(requestId) {
   return { request: procurementRequestDto_(request), documents: documents, logs: logs };
 }
 
-function procurementRequestDto_(row) { return { requestId: String(row.REQUEST_ID), requestNumber: String(row.REQUEST_NUMBER), requestType: String(row.REQUEST_TYPE), requesterName: String(row.REQUESTER_NAME), requesterEmail: String(row.REQUESTER_EMAIL), requesterDivision: String(row.REQUESTER_DIVISION || ""), requesterNotes: String(row.REQUESTER_NOTES || ""), status: String(row.CURRENT_STATUS), submittedAt: procurementIso_(row.SUBMITTED_AT), updatedAt: procurementIso_(row.LAST_UPDATED_AT || row.UPDATED_AT), masterRequestId: String(row.MASTER_REQUEST_ID || "") }; }
+function procurementRequestDto_(row) { return { requestId: String(row.REQUEST_ID), requestNumber: String(row.REQUEST_NUMBER), requestType: String(row.REQUEST_TYPE), requesterName: String(row.REQUESTER_NAME), requesterEmail: String(row.REQUESTER_EMAIL), requesterDivision: String(row.REQUESTER_DIVISION || ""), requesterPosition: String(row.REQUESTER_POSITION || ""), requesterLocation: String(row.REQUESTER_LOCATION || ""), requesterNotes: String(row.REQUESTER_NOTES || ""), status: String(row.CURRENT_STATUS), submittedAt: procurementIso_(row.SUBMITTED_AT), updatedAt: procurementIso_(row.LAST_UPDATED_AT || row.UPDATED_AT), masterRequestId: String(row.MASTER_REQUEST_ID || "") }; }
 function procurementLog_(requestId, eventType, oldStatus, newStatus, actor, note, documentId) { portalAppend_(PORTAL_SHEETS_.logs, { LOG_ID: "LOG-" + Utilities.getUuid(), REQUEST_ID: requestId, EVENT_TYPE: eventType, OLD_STATUS: oldStatus, NEW_STATUS: newStatus, EVENT_AT: new Date(), ACTOR_USER_ID: actor.userId, ACTOR_EMAIL: actor.email, ACTOR_NAME: actor.name, ACTOR_ROLE: actor.role, NOTE: note || "", RELATED_DOCUMENT_ID: documentId || "", RELATED_VERSION_ID: "", METADATA_JSON: "{}" }); }
 function procurementIso_(value) { if (!value) return ""; var date = new Date(value); return isNaN(date.getTime()) ? String(value) : date.toISOString(); }
+function procurementDateOnly_(value) {
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) date = new Date();
+  var timezone = Session.getScriptTimeZone() || "Asia/Jakarta";
+  var parts = Utilities.formatDate(date, timezone, "yyyy-MM-dd").split("-");
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+function procurementFormatMasterRequestDate_(sheet, rowNumber, headers, value) {
+  var column = headers.indexOf("Tanggal Request");
+  if (column < 0 || !rowNumber) return;
+  var range = sheet.getRange(rowNumber, column + 1);
+  range.setValue(value);
+  range.setNumberFormat("dd-mmm-yyyy");
+}
 function procurementMasterContext_(sheet) {
   var lastColumn = sheet.getLastColumn();
   var lastRow = typeof sheet.getLastRow === "function" ? sheet.getLastRow() : 20;
