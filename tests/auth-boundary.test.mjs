@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 
-const source = readFileSync('app/api/apps-script/route.ts', 'utf8');
+const runtimeSource = readFileSync('app/konfigurasi/runtime-server.ts', 'utf8');
+const source = readFileSync('app/api/apps-script/route.ts', 'utf8').replace(
+  /import \{ portalServerRuntime \} from "\.\.\/\.\.\/konfigurasi\/runtime-server";/,
+  runtimeSource,
+);
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const route = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 process.env.APPS_SCRIPT_URL = 'https://script.google.com/macros/s/test/exec';
@@ -31,6 +35,8 @@ try {
   assert.equal((await missingIdentity.json()).error, 'AUTH_REQUIRED');
   assert.equal((await route.GET(new Request('https://portal.test/api/apps-script?action=listMyRequests'))).status, 405);
   const client = readFileSync('app/layanan/akses-backend.ts', 'utf8');
+  const login = readFileSync('app/halaman/HalamanMasuk.tsx', 'utf8');
   assert.ok(!client.includes('location.reload'), 'API errors must never trigger reload loops');
+  assert.match(login, /use_fedcm_for_button: true/, 'Chrome login should use browser-managed FedCM instead of a fragile popup');
   console.log('PASS: upstream denial, HTML response, valid response, missing identity, protected GET, no automatic reload');
 } finally { globalThis.fetch = originalFetch; }

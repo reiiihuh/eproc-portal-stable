@@ -18,7 +18,7 @@ export function AplikasiPortal() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   if (portal.splash) return <LayarPembuka />;
-  if (!portal.user) return <HalamanMasuk clientId={portal.runtime.googleClientId} onLogin={portal.login} />;
+  if (!portal.user) return <HalamanMasuk clientId={portal.runtime.googleClientId} allowDemo={portal.runtime.environment !== "production"} onLogin={portal.login} />;
   if (!portal.profileChecked) return <LayarPembuka />;
   if (portal.runtime.backendConfigured && !portal.user.profileComplete) {
     return <ProfilPengguna user={portal.user} busy={portal.busy} onSave={portal.saveProfile} onLogout={portal.logout} />;

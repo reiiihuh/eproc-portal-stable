@@ -347,16 +347,23 @@ function portalProfileDto_(user) {
 function portalFindMasterPicByEmail_(email) {
   var context = portalMasterPicContext_();
   var expected = portalEmail_(email);
-  var row = context.rows.filter(function (item) { return portalEmail_(item.Email) === expected; })[0];
+  var fields = context.fields;
+  var row = context.rows.filter(function (item) { return portalEmail_(item[fields.email]) === expected; })[0];
   if (!row) return null;
-  var inactive = ["TIDAK AKTIF", "INACTIVE", "NONAKTIF"].indexOf(String(row.Status || "").trim().toUpperCase()) >= 0;
+  var picId = String(row[fields.picId] || "").trim();
+  if (!picId) {
+    picId = "PIC-" + Utilities.getUuid().slice(0, 8).toUpperCase();
+    context.sheet.getRange(row.__rowNumber, context.headers.indexOf(fields.picId) + 1).setValue(picId);
+    row[fields.picId] = picId;
+  }
+  var inactive = ["TIDAK AKTIF", "INACTIVE", "NONAKTIF"].indexOf(String(row[fields.status] || "").trim().toUpperCase()) >= 0;
   return {
-    picId: row["PIC ID"] || "",
-    name: row["Nama PIC"] || "",
-    email: row.Email || email,
-    division: row["Group/Divisi"] || row["Group/Div"] || "",
-    position: row.Jabatan || row["Lvl Jabatan"] || "",
-    location: row.Lokasi || "",
+    picId: picId,
+    name: row[fields.name] || "",
+    email: row[fields.email] || email,
+    division: row[fields.division] || "",
+    position: row[fields.position] || "",
+    location: row[fields.location] || "",
     active: !inactive
   };
 }
@@ -364,17 +371,17 @@ function portalFindMasterPicByEmail_(email) {
 function portalUpsertMasterPic_(actor, profile) {
   var context = portalMasterPicContext_();
   var sheet = context.sheet;
-  var existing = context.rows.filter(function (row) { return portalEmail_(row.Email) === actor.email; })[0];
-  var picId = existing && existing["PIC ID"] ? String(existing["PIC ID"]) : "PIC-" + Utilities.getUuid().slice(0, 8).toUpperCase();
-  var values = {
-    "PIC ID": picId,
-    "Nama PIC": actor.name,
-    "Group/Divisi": profile.division,
-    "Jabatan": profile.position,
-    "Lokasi": profile.location,
-    "Email": actor.email,
-    "Status": "Aktif"
-  };
+  var fields = context.fields;
+  var existing = context.rows.filter(function (row) { return portalEmail_(row[fields.email]) === actor.email; })[0];
+  var picId = existing && existing[fields.picId] ? String(existing[fields.picId]) : "PIC-" + Utilities.getUuid().slice(0, 8).toUpperCase();
+  var values = {};
+  values[fields.picId] = picId;
+  values[fields.name] = actor.name;
+  values[fields.division] = profile.division;
+  values[fields.position] = profile.position;
+  values[fields.location] = profile.location;
+  values[fields.email] = actor.email;
+  values[fields.status] = "Aktif";
   if (existing) {
     Object.keys(values).forEach(function (header) {
       var column = context.headers.indexOf(header);
@@ -394,16 +401,28 @@ function portalMasterPicContext_() {
   var headerIndex = -1;
   for (var index = 0; index < Math.min(display.length, 20); index++) {
     var candidate = display[index].map(function (value) { return String(value || "").trim(); });
-    if (candidate.indexOf("Nama PIC") >= 0 && candidate.indexOf("Email") >= 0) { headerIndex = index; break; }
+    if (portalMasterPicHeader_(candidate, ["Nama PIC", "Nama", "Nama Requester"]) && portalMasterPicHeader_(candidate, ["Email", "Email PIC", "Alamat Email", "Alamat Email User", "Email Address", "E-mail"])) { headerIndex = index; break; }
   }
   if (headerIndex < 0) throw new Error("MASTER_HEADER_REQUIRED: MASTER PIC membutuhkan header Nama PIC dan Email.");
   var headers = display[headerIndex].map(function (value) { return String(value || "").trim(); });
-  var required = ["PIC ID", "Nama PIC", "Group/Divisi", "Jabatan", "Lokasi", "Email", "Status"];
-  required.forEach(function (header) {
-    if (headers.indexOf(header) < 0) {
+  var definitions = {
+    picId: ["PIC ID", "ID PIC"],
+    name: ["Nama PIC", "Nama", "Nama Requester"],
+    division: ["Group/Divisi", "Group/Div", "Divisi", "Division"],
+    position: ["Jabatan", "Lvl Jabatan", "Level Jabatan", "Position"],
+    location: ["Lokasi", "Location"],
+    email: ["Email", "Email PIC", "Alamat Email", "Alamat Email User", "Email Address", "E-mail"],
+    status: ["Status", "Status PIC"]
+  };
+  var canonical = { picId: "PIC ID", name: "Nama PIC", division: "Group/Divisi", position: "Jabatan", location: "Lokasi", email: "Email", status: "Status" };
+  var fields = {};
+  Object.keys(definitions).forEach(function (key) {
+    fields[key] = portalMasterPicHeader_(headers, definitions[key]);
+    if (!fields[key]) {
       var column = sheet.getLastColumn() + 1;
-      sheet.getRange(headerIndex + 1, column).setValue(header);
-      headers[column - 1] = header;
+      sheet.getRange(headerIndex + 1, column).setValue(canonical[key]);
+      headers[column - 1] = canonical[key];
+      fields[key] = canonical[key];
     }
   });
   values = sheet.getDataRange().getValues();
@@ -412,7 +431,16 @@ function portalMasterPicContext_() {
     headers.forEach(function (header, column) { result[header] = row[column]; });
     return result;
   }).filter(function (row) { return row.Email || row["Nama PIC"]; });
-  return { sheet: sheet, headers: headers, headerRow: headerIndex + 1, rows: rows };
+  return { sheet: sheet, headers: headers, headerRow: headerIndex + 1, rows: rows, fields: fields };
+}
+
+function portalMasterPicHeader_(headers, aliases) {
+  var expected = aliases.map(portalNormalizeHeader_);
+  return headers.filter(function (header) { return expected.indexOf(portalNormalizeHeader_(header)) >= 0; })[0] || "";
+}
+
+function portalNormalizeHeader_(value) {
+  return String(value || "").replace(/\u00a0/g, " ").trim().toLowerCase().replace(/[._-]+/g, " ").replace(/\s+/g, " ");
 }
 
 function portalEnsureSheetHeaders_(sheetName, required) {

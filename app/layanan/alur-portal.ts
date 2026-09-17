@@ -41,7 +41,15 @@ export function useAlurPortal() {
     }, 0);
     fetch("/api/config")
       .then(async (response) => await response.json() as RuntimeConfig)
-      .then(value => { setRuntime(value); if (!value.backendConfigured) setProfileChecked(true); })
+      .then(value => {
+        setRuntime(value);
+        if (!value.backendConfigured) setProfileChecked(true);
+        if (value.environment === "production" && !sessionStorage.getItem("nano_google_id_token")) {
+          sessionStorage.removeItem("nano_portal_user");
+          setUser(null);
+          setProfileChecked(false);
+        }
+      })
       .catch(() => setNotice({ kind: "error", text: "Konfigurasi portal gagal dimuat." }));
     return () => {
       window.clearTimeout(splashTimer);
@@ -51,6 +59,7 @@ export function useAlurPortal() {
 
   useEffect(() => {
     if (!user || !runtime.backendConfigured || profileChecked) return;
+    if (runtime.environment === "production" && !sessionStorage.getItem("nano_google_id_token")) return;
     let active = true;
     const timer = window.setTimeout(() => {
       portalApi.getMyProfile().then(profile => {
@@ -63,7 +72,7 @@ export function useAlurPortal() {
       }).finally(() => { if (active) setProfileChecked(true); });
     }, 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [user, runtime.backendConfigured, profileChecked]);
+  }, [user, runtime.backendConfigured, runtime.environment, profileChecked]);
 
   const loadRequests = useCallback(async (silent = false) => {
     if (!user || !profileChecked || !user.profileComplete || !runtime.backendConfigured || requestRefreshActive.current) return;

@@ -31,9 +31,11 @@ function readGoogleIdentity(token: string): PortalUser {
 
 export function HalamanMasuk({
   clientId,
+  allowDemo,
   onLogin,
 }: {
   clientId: string;
+  allowDemo: boolean;
   onLogin: (user: PortalUser, idToken?: string) => void;
 }) {
   const button = useRef<HTMLDivElement>(null);
@@ -61,10 +63,13 @@ export function HalamanMasuk({
     window.google.accounts.id.initialize({
       client_id: clientId,
       auto_select: false,
+      use_fedcm_for_button: true,
+      button_auto_select: false,
       cancel_on_tap_outside: true,
       callback: (response: { credential?: string }) => {
         try {
           if (!response.credential) throw new Error();
+          setError("");
           onLogin(readGoogleIdentity(response.credential), response.credential);
         } catch {
           setError("Identitas Google tidak dapat dibaca. Silakan login ulang.");
@@ -99,11 +104,12 @@ export function HalamanMasuk({
           <h2>Masuk untuk melanjutkan</h2>
           <p>Gunakan akun Google kantor atau akun Google lain yang diizinkan.</p>
           <div className="google-button" ref={button} />
-          {!clientId && (
+          {!clientId && allowDemo && (
             <button className="outline-button" onClick={() => onLogin({ name: "Demo Requester", email: "requester.demo@gmail.com" })}>
               <UserRound size={19} /> Masuk mode demo
             </button>
           )}
+          {!clientId && !allowDemo && <div className="error"><CircleAlert size={16} />Konfigurasi login Google tidak tersedia.</div>}
           {error && <div className="error"><CircleAlert size={16} />{error}</div>}
           <div className="secure-note">
             <ShieldCheck size={17} />

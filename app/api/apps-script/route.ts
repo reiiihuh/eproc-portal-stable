@@ -1,5 +1,7 @@
+import { portalServerRuntime } from "../../konfigurasi/runtime-server";
+
 function backendUrl() {
-  const url = process.env.APPS_SCRIPT_URL ?? "";
+  const url = portalServerRuntime().appsScriptUrl;
   if (!url.startsWith("https://script.google.com/macros/s/") || !url.endsWith("/exec")) throw new Error("APPS_SCRIPT_URL belum dikonfigurasi dengan URL deployment /exec.");
   return url;
 }
@@ -82,7 +84,7 @@ async function verifyGoogleIdentity(idToken: string): Promise<GoogleIdentity> {
   const validSignature = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, decodeBase64Url(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
   const issuer = String(claim.iss ?? "");
   const verified = claim.email_verified === true || claim.email_verified === "true";
-  if (!validSignature || !["accounts.google.com", "https://accounts.google.com"].includes(issuer) || claim.aud !== process.env.GOOGLE_CLIENT_ID || !verified || Number(claim.exp) * 1000 <= Date.now()) throw new Error("Identitas Google tidak lolos verifikasi.");
+  if (!validSignature || !["accounts.google.com", "https://accounts.google.com"].includes(issuer) || claim.aud !== portalServerRuntime().googleClientId || !verified || Number(claim.exp) * 1000 <= Date.now()) throw new Error("Identitas Google tidak lolos verifikasi.");
   const email = String(claim.email ?? "").toLowerCase();
   if (!email) throw new Error("Email Google tidak tersedia.");
   return { email, name: String(claim.name || email), picture: claim.picture ? String(claim.picture) : undefined, sub: String(claim.sub ?? "") };
