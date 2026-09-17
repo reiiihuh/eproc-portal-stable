@@ -5,7 +5,7 @@ function portalBody_(value) { return procurementBody_(value); }
 function testProcurementReviewModule() {
   var parsed = portalBody_({ payload: { ready: true } });
   if (!parsed.ready) throw new Error("PROCUREMENT_BODY_HELPER_FAILED");
-  Logger.log("Procurement Review backend siap: 2026-09-17.2");
+  Logger.log("Procurement Review backend siap: 2026-09-17.1");
   return true;
 }
 
@@ -294,6 +294,7 @@ function procurementUpdateDataset_(body, mode) {
       if (target.active || target.legacy) throw new Error("DATASET_PROTECTED: Dataset aktif atau legacy tidak dapat diarsipkan.");
       procurementWritePatches_(registry, target.__rowNumber, PROCUREMENT_DATASET_HEADERS_, { STATUS: "ARCHIVED", UPDATED_AT: new Date(), UPDATED_BY: actor.email });
     } else {
+      if (target.status === "ARCHIVED") throw new Error("DATASET_ARCHIVED: Dataset arsip tidak dapat diaktifkan.");
       items.forEach(function (item) {
         procurementWritePatches_(registry, item.__rowNumber, PROCUREMENT_DATASET_HEADERS_, { STATUS: item.key === target.key ? "ACTIVE" : (item.status === "ARCHIVED" ? "ARCHIVED" : "READY"), ENVIRONMENT: item.key === target.key && item.environment !== "LEGACY" ? "PRODUCTION" : item.environment, ACTIVE: item.key === target.key, UPDATED_AT: new Date(), UPDATED_BY: actor.email });
       });
@@ -312,27 +313,19 @@ function procurementResetSandboxDataset_(body) {
     var actor = procurementActor_(body);
     var registry = procurementEnsureDatasetRegistry_(actor);
     var target = procurementDatasetRows_().filter(function (item) { return item.key === String(body.datasetKey || ""); })[0];
-    if (!target || target.legacy || target.active) throw new Error("DATASET_PROTECTED: Hanya dataset non-legacy yang sedang tidak aktif yang dapat direset.");
-    if (String(body.confirmation || "") !== "RESET " + target.key) throw new Error("CONFIRMATION_REQUIRED: Ketik RESET " + target.key + " untuk melanjutkan.");
+    if (!target || target.environment !== "SANDBOX" || target.active) throw new Error("DATASET_PROTECTED: Hanya sandbox nonaktif yang dapat direset.");
+    if (String(body.confirmation || "") !== target.key) throw new Error("CONFIRMATION_REQUIRED: Konfirmasi reset tidak sesuai.");
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmmss");
-    var resetSheets = [[target.masterSheet, "M"], [target.offersSheet, "O"], [target.documentsSheet, "D"]].map(function (entry) {
+    [[target.masterSheet, "M"], [target.offersSheet, "O"], [target.documentsSheet, "D"]].forEach(function (entry) {
       var sheet = getSpreadsheet_().getSheetByName(entry[0]);
-      if (!sheet) throw new Error("SHEET_NOT_FOUND: " + entry[0] + ". Reset dibatalkan sebelum data diubah.");
+      if (!sheet) return;
       var required = entry[1] === "M" ? "Nomor Request" : "Request ID";
       var context = entry[1] === "M" ? procurementMasterContext_(sheet) : procurementSheetContext_(sheet, required);
-      return { sheet: sheet, code: entry[1], context: context };
-    });
-    // Semua backup harus berhasil sebelum satu pun data transaksi dikosongkan.
-    resetSheets.forEach(function (item) {
-      item.sheet.copyTo(getSpreadsheet_()).setName("BKP " + target.year + " " + item.code + " " + stamp + " " + Utilities.getUuid().slice(0, 4));
-    });
-    resetSheets.forEach(function (item) {
-      var sheet = item.sheet;
-      var context = item.context;
+      sheet.copyTo(getSpreadsheet_()).setName("BKP " + target.year + " " + entry[1] + " " + stamp + " " + Utilities.getUuid().slice(0, 4));
       var rows = Math.max(0, sheet.getLastRow() - context.headerRow);
       if (rows) sheet.getRange(context.headerRow + 1, 1, rows, sheet.getLastColumn()).clearContent();
     });
-    procurementWritePatches_(registry, target.__rowNumber, PROCUREMENT_DATASET_HEADERS_, { STATUS: "READY", ENVIRONMENT: "SANDBOX", ACTIVE: false, LAST_SEQUENCE: 0, UPDATED_AT: new Date(), UPDATED_BY: actor.email });
+    procurementWritePatches_(registry, target.__rowNumber, PROCUREMENT_DATASET_HEADERS_, { LAST_SEQUENCE: 0, UPDATED_AT: new Date(), UPDATED_BY: actor.email });
     SpreadsheetApp.flush();
     return procurementListDatasets_(body);
   });

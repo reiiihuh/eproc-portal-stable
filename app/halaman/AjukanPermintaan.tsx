@@ -3,7 +3,7 @@
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { KartuUnggahDokumen } from "../komponen/KartuUnggahDokumen";
-import { allowedFileDescription } from "../layanan/validasi-dokumen";
+import { allowedFileDescription, maximumFileSizeMb } from "../layanan/validasi-dokumen";
 import type { PortalConfig } from "../tipe/data-portal";
 
 export function AjukanPermintaan({
@@ -46,7 +46,7 @@ export function AjukanPermintaan({
           </label>
         </div>
         <div className="sectionhead">
-          <div><h2>Documents</h2><p>Format: {allowedFileDescription}. Maksimal 10 MB per file.</p></div>
+          <div><h2>Documents</h2><p>Format: {allowedFileDescription}. Maksimal {maximumFileSizeMb} MB per file.</p></div>
           <span>{uploadedCount}/{requiredDocuments.length} required</span>
         </div>
         <div className="docstack">

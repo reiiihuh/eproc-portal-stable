@@ -1,5 +1,6 @@
 const allowedExtensions = ["pdf", "doc", "docx", "xls", "xlsx"];
-export const maximumFileSize = 10 * 1024 * 1024;
+export const maximumFileSizeMb = 3;
+export const maximumFileSize = maximumFileSizeMb * 1024 * 1024;
 export const allowedFileDescription = "PDF, DOC, DOCX, XLS, XLSX";
 
 export function validateDocument(file: File) {
@@ -8,7 +9,6 @@ export function validateDocument(file: File) {
     throw new Error(`${file.name}: format file tidak didukung.`);
   }
   if (file.size > maximumFileSize) {
-    throw new Error(`${file.name}: ukuran file melebihi 10 MB.`);
+    throw new Error(`${file.name}: ukuran file melebihi ${maximumFileSizeMb} MB.`);
   }
 }
-
