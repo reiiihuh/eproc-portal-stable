@@ -30,11 +30,12 @@ function handleRequest_(request) {
 }
 ```
 
-5. Save. Jalankan fungsi `authorizePortalServices` sekali dari editor dan setujui izinnya. Execution log harus menampilkan nama spreadsheet, nama folder Drive, dan `urlFetchAuthorized: true`.
-6. **Deploy → Manage deployments → Edit → New version → Deploy**. Pertahankan:
+5. Pastikan folder `PORTAL_ROOT_FOLDER_ID` dibagikan sebagai **Editor** ke akun yang memiliki deployment Apps Script.
+6. Save. Jalankan fungsi `authorizePortalServices` sekali dari editor dan setujui izinnya. Fungsi ini membuat lalu membuang file uji kecil untuk memastikan akses tulis. Execution log harus menampilkan nama spreadsheet, nama folder Drive, `driveWritable: true`, dan `urlFetchAuthorized: true`.
+7. **Deploy → Manage deployments → Edit → New version → Deploy**. Pertahankan:
    - Execute as: **Me**
    - Who has access: **Anyone**
-7. URL `/exec` tidak perlu diganti selama deployment yang sama diedit.
+8. URL `/exec` tidak perlu diganti selama deployment yang sama diedit.
 
 Pada versi `2026-09-15.1`, keputusan **Approve** langsung menambahkan request ke `MASTER DATABASE PENGADAAN`, menyimpan `MASTER_REQUEST_ID`, dan mengubah status portal menjadi `IN_PROCESS`. Saat antrean review dibuka, request lama yang sudah telanjur berstatus `APPROVED_FOR_PROCESS` juga direkonsiliasi otomatis. Tombol/action promote terpisah tetap tersedia sebagai jalur pemulihan manual.
 

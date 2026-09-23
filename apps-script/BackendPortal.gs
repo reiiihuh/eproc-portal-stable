@@ -20,9 +20,13 @@ var PORTAL_SHEETS_ = {
 function authorizePortalServices_() {
   var rootId = PropertiesService.getScriptProperties().getProperty("PORTAL_ROOT_FOLDER_ID");
   if (!rootId) throw new Error("PORTAL_ROOT_FOLDER_ID belum diisi.");
+  var root = portalRootFolder_();
+  portalVerifyDriveWrite_(root);
   var result = {
     spreadsheet: getSpreadsheet_().getName(),
-    driveFolder: DriveApp.getFolderById(rootId).getName(),
+    driveFolder: root.getName(),
+    driveFolderId: root.getId(),
+    driveWritable: true,
     urlFetchAuthorized: UrlFetchApp.fetch("https://oauth2.googleapis.com/tokeninfo?id_token=invalid", { muteHttpExceptions: true }).getResponseCode() > 0
   };
   Logger.log(JSON.stringify(result));
@@ -115,22 +119,25 @@ function portalUploadDocument_(body) {
     var actor = portalIdentity_(body);
     var request = portalOwnedRequest_(body.requestId, actor);
     var requestStatus = String(request.CURRENT_STATUS || "").toUpperCase();
-    if (["DRAFT", "NEED_CLARIFICATION", "REJECTED"].indexOf(requestStatus) < 0) throw new Error("REQUEST_NOT_EDITABLE: Dokumen hanya dapat diubah saat Draft, Need Clarification, atau Rejected.");
     var document = portalFind_(PORTAL_SHEETS_.documents, "DOCUMENT_ID", body.documentId);
     if (!document || String(document.REQUEST_ID) !== String(request.REQUEST_ID)) throw new Error("DOCUMENT_NOT_FOUND: documentId tidak sesuai request.");
+    var reviewStatus = String(document.REVIEW_STATUS || "").toUpperCase().replace(/[ -]+/g, "_");
+    var requestEditable = ["DRAFT", "NEED_CLARIFICATION", "REJECTED"].indexOf(requestStatus) >= 0;
+    var revisionRequested = requestStatus === "PROCUREMENT_REVIEW" && reviewStatus === "REVISION_REQUIRED";
+    if (!requestEditable && !revisionRequested) throw new Error("REQUEST_NOT_EDITABLE: Dokumen hanya dapat diubah saat Draft, Need Clarification, Rejected, atau ketika Procurement meminta revisi dokumen tersebut.");
     var base64 = String(body.base64 || body.base64Data || body.fileBase64 || "");
     if (!base64) throw new Error("FILE_REQUIRED: Isi file tidak tersedia.");
     var fileName = portalSafeFileName_(body.fileName);
     var extension = fileName.split(".").pop().toLowerCase();
     if (["pdf", "doc", "docx", "xls", "xlsx"].indexOf(extension) === -1) throw new Error("FILE_TYPE_NOT_ALLOWED: Gunakan PDF, DOC, DOCX, XLS, atau XLSX.");
     var bytes = Utilities.base64Decode(base64);
-    if (bytes.length > 10 * 1024 * 1024) throw new Error("FILE_TOO_LARGE: Maksimal 10 MB per file.");
+    if (bytes.length > 3 * 1024 * 1024) throw new Error("FILE_TOO_LARGE: Maksimal 3 MB per file.");
     var now = new Date();
     var folder = portalRequestFolder_(request, actor);
     var versionNumber = Number(document.CURRENT_VERSION_NUMBER || 0) + 1;
     var storedName = String(document.DOCUMENT_TYPE) + "_v" + versionNumber + "_" + fileName;
     var blob = Utilities.newBlob(bytes, String(body.mimeType || "application/octet-stream"), storedName);
-    var file = folder.createFile(blob);
+    var file = portalCreateDriveFile_(folder, blob);
     var previousVersionId = String(document.CURRENT_VERSION_ID || "");
     portalUpdateWhere_(PORTAL_SHEETS_.versions, "DOCUMENT_ID", document.DOCUMENT_ID, function (row) {
       if (portalTrue_(row.IS_CURRENT)) row.IS_CURRENT = false;
@@ -164,7 +171,8 @@ function portalUploadDocument_(body) {
       ROW_VERSION: Number(document.ROW_VERSION || 0) + 1
     });
     portalTouchRequest_(request.REQUEST_ID, actor, now);
-    portalAppendLog_(request.REQUEST_ID, previousVersionId ? "DOCUMENT_REPLACED" : "DOCUMENT_UPLOADED", request.CURRENT_STATUS, request.CURRENT_STATUS, actor, document.DOCUMENT_TYPE + " berhasil diunggah.", document.DOCUMENT_ID, version.VERSION_ID);
+    var logNote = revisionRequested ? document.DOCUMENT_TYPE + " diunggah ulang sesuai catatan revisi Procurement." : document.DOCUMENT_TYPE + " berhasil diunggah.";
+    portalAppendLog_(request.REQUEST_ID, previousVersionId ? "DOCUMENT_REPLACED" : "DOCUMENT_UPLOADED", request.CURRENT_STATUS, request.CURRENT_STATUS, actor, logNote, document.DOCUMENT_ID, version.VERSION_ID);
     return { ok: true, data: { document: portalMerge_(document, version) } };
   });
 }
@@ -470,16 +478,54 @@ function portalRequestTypeLabel_(input) {
 }
 
 function portalRequestFolder_(request, actor) {
-  var rootId = PropertiesService.getScriptProperties().getProperty("PORTAL_ROOT_FOLDER_ID");
-  if (!rootId) throw new Error("DRIVE_NOT_CONFIGURED: PORTAL_ROOT_FOLDER_ID belum diisi di Script Properties.");
-  var root = DriveApp.getFolderById(rootId);
-  var yearFolder = portalChildFolder_(root, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy"));
-  return portalChildFolder_(yearFolder, portalSafeFileName_(request.REQUEST_NUMBER + " - " + request.REQUEST_TYPE + " - " + actor.email));
+  try {
+    var root = portalRootFolder_();
+    var yearFolder = portalChildFolder_(root, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy"));
+    return portalChildFolder_(yearFolder, portalSafeFileName_(request.REQUEST_NUMBER + " - " + request.REQUEST_TYPE + " - " + actor.email));
+  } catch (error) {
+    if (String(error && error.message || error).indexOf("DRIVE_") === 0) throw error;
+    throw new Error("DRIVE_ACCESS_DENIED: Folder request tidak dapat dibuka atau dibuat. Pastikan akun pemilik deployment Apps Script memiliki akses Editor ke PORTAL_ROOT_FOLDER_ID. Detail: " + portalErrorMessage_(error));
+  }
 }
 
 function portalChildFolder_(parent, name) {
   var found = parent.getFoldersByName(name);
   return found.hasNext() ? found.next() : parent.createFolder(name);
+}
+
+function portalRootFolder_() {
+  var rootId = String(PropertiesService.getScriptProperties().getProperty("PORTAL_ROOT_FOLDER_ID") || "").trim();
+  if (!rootId) throw new Error("DRIVE_NOT_CONFIGURED: PORTAL_ROOT_FOLDER_ID belum diisi di Script Properties.");
+  try {
+    var root = DriveApp.getFolderById(rootId);
+    root.getName();
+    return root;
+  } catch (error) {
+    throw new Error("DRIVE_ACCESS_DENIED: Akun pemilik deployment Apps Script tidak dapat mengakses PORTAL_ROOT_FOLDER_ID. Jalankan authorizePortalServices dari editor lalu pastikan folder dibagikan sebagai Editor ke akun tersebut. Detail: " + portalErrorMessage_(error));
+  }
+}
+
+function portalCreateDriveFile_(folder, blob) {
+  try {
+    return folder.createFile(blob);
+  } catch (error) {
+    throw new Error("DRIVE_WRITE_DENIED: File tidak dapat ditulis ke folder request. Pastikan akun pemilik deployment Apps Script memiliki akses Editor dan deployment dijalankan sebagai pemilik. Detail: " + portalErrorMessage_(error));
+  }
+}
+
+function portalVerifyDriveWrite_(folder) {
+  var probe;
+  try {
+    probe = folder.createFile(Utilities.newBlob("Nano Portal Drive permission check", "text/plain", ".nano-portal-write-check.txt"));
+    probe.setTrashed(true);
+  } catch (error) {
+    try { if (probe) probe.setTrashed(true); } catch (cleanupError) { Logger.log("DRIVE_PROBE_CLEANUP_FAILED: " + portalErrorMessage_(cleanupError)); }
+    throw new Error("DRIVE_WRITE_DENIED: Akun yang menjalankan authorizePortalServices tidak dapat menulis ke PORTAL_ROOT_FOLDER_ID. Bagikan folder sebagai Editor lalu jalankan fungsi ini lagi. Detail: " + portalErrorMessage_(error));
+  }
+}
+
+function portalErrorMessage_(error) {
+  return String(error && error.message ? error.message : error || "Unknown Drive error");
 }
 
 function portalNextRequestNumber_() {

@@ -23,6 +23,11 @@ export function DetailPermintaan({
   const requiredDocuments = request.documents.filter((document) => document.required);
   const ready = requiredDocuments.every((document) => document.fileName || document.version > 0);
   const editable = ["Draft", "Need Clarification", "Rejected"].includes(request.status);
+  const isRevisionRequired = (document: PortalDocument) =>
+    document.status.trim().toUpperCase().replace(/[ -]+/g, "_") === "REVISION_REQUIRED";
+  const canReplace = (document: PortalDocument) =>
+    editable || (request.status === "Procurement Review" && isRevisionRequired(document));
+  const revisionDocuments = request.documents.filter(isRevisionRequired);
   const clarificationNote = [...request.logs]
     .reverse()
     .find((log) => log.eventType.includes("REVISION") || log.eventType.includes("CLARIFICATION"))?.note;
@@ -35,7 +40,7 @@ export function DetailPermintaan({
         <LabelStatus status={request.status} />
       </header>
 
-      {request.status === "Need Clarification" && (
+      {(request.status === "Need Clarification" || revisionDocuments.length > 0) && (
         <div className="alert"><CircleAlert size={21} /><div><strong>Procurement membutuhkan revisi</strong><p>{clarificationNote || "Periksa catatan pada dokumen lalu unggah versi pengganti."}</p></div></div>
       )}
 
@@ -49,8 +54,8 @@ export function DetailPermintaan({
           </div>
           {request.documents.length === 0 ? (
             <div className="empty">Detail dokumen belum tersedia.</div>
-          ) : request.documents.map((document) => (
-            <div className="detaildoc" key={document.id}>
+          ) : <div className="document-table-scroll"><div className="document-table">{request.documents.map((document) => (
+            <div className={`detaildoc ${isRevisionRequired(document) ? "needs-revision" : ""}`} key={document.id}>
               <div className="docicon"><FileText size={19} /></div>
               <div>
                 <div className="doc-title"><strong>{document.type}</strong><b className={document.required ? "required" : "optional"}>{document.required ? "Wajib" : "Opsional"}</b></div>
@@ -59,15 +64,15 @@ export function DetailPermintaan({
                 {document.reviewNote && <p><b>Catatan:</b> {document.reviewNote}</p>}
                 <div className="doc-actions">
                   {document.fileUrl && <a href={document.fileUrl} target="_blank" rel="noreferrer">Lihat file</a>}
-                  {editable && <label className="mini-upload">
-                    <UploadCloud size={14} /> {document.fileName ? "Ganti file" : "Pilih file"}
-                    <input hidden type="file" accept={acceptedFileTypes} disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void onReplace(document, file); }} />
+                  {canReplace(document) && <label className="mini-upload">
+                    <UploadCloud size={14} /> {isRevisionRequired(document) ? "Upload revisi" : document.fileName ? "Ganti file" : "Pilih file"}
+                    <input hidden type="file" accept={acceptedFileTypes} disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void onReplace(document, file); }} />
                   </label>}
                 </div>
               </div>
               <LabelStatus status={document.status} />
             </div>
-          ))}
+          ))}</div></div>}
           {editable && (
             <div className="detail-submit">
               <button className="primary" disabled={!ready || busy} onClick={() => void onSubmit()}>

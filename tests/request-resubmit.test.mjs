@@ -45,3 +45,42 @@ test("completed procurement records remain immutable", () => {
     /INVALID_STATUS_TRANSITION/,
   );
 });
+
+function createUploadHarness(requestStatus, reviewStatus) {
+  const request = { REQUEST_ID: "REQ-1", REQUEST_NUMBER: "NPR-2026-0001", REQUEST_TYPE: "Pengadaan Baru", CURRENT_STATUS: requestStatus, ROW_VERSION: 2 };
+  const document = { DOCUMENT_ID: "DOC-1", REQUEST_ID: request.REQUEST_ID, DOCUMENT_TYPE: "FPB", REVIEW_STATUS: reviewStatus, CURRENT_VERSION_NUMBER: 1, CURRENT_VERSION_ID: "VER-OLD", ROW_VERSION: 1 };
+  const context = vm.createContext({
+    console,
+    Utilities: {
+      base64Decode: () => [1, 2, 3],
+      newBlob: (_bytes, mimeType, name) => ({ mimeType, name }),
+      getUuid: () => "uuid",
+    },
+  });
+  vm.runInContext(source, context);
+  context.portalWithLock_ = callback => callback();
+  context.portalIdentity_ = () => ({ userId: "USER-1", email: "requester@example.com", name: "Requester" });
+  context.portalOwnedRequest_ = () => request;
+  context.portalFind_ = () => document;
+  context.portalRequestFolder_ = () => ({ getId: () => "FOLDER-1" });
+  context.portalCreateDriveFile_ = (_folder, blob) => ({ getId: () => "FILE-1", getUrl: () => "https://drive.test/file", getName: () => blob.name, getMimeType: () => blob.mimeType });
+  context.portalUpdateWhere_ = () => undefined;
+  context.portalAppend_ = (_sheet, row) => row;
+  context.portalUpdateOne_ = (_sheet, _key, _id, changes) => Object.assign(document, changes);
+  context.portalTouchRequest_ = () => undefined;
+  context.portalAppendLog_ = () => undefined;
+  return { context, document, request };
+}
+
+test("only a document marked for revision can be replaced during procurement review", () => {
+  const allowed = createUploadHarness("PROCUREMENT_REVIEW", "REVISION_REQUIRED");
+  allowed.context.portalUploadDocument_({ requestId: "REQ-1", documentId: "DOC-1", fileName: "fpb.pdf", mimeType: "application/pdf", base64: "AQID" });
+  assert.equal(allowed.document.CURRENT_VERSION_NUMBER, 2);
+  assert.equal(allowed.document.REVIEW_STATUS, "UPLOADED");
+
+  const blocked = createUploadHarness("PROCUREMENT_REVIEW", "VALID");
+  assert.throws(
+    () => blocked.context.portalUploadDocument_({ requestId: "REQ-1", documentId: "DOC-1", fileName: "fpb.pdf", mimeType: "application/pdf", base64: "AQID" }),
+    /REQUEST_NOT_EDITABLE/,
+  );
+});

@@ -81,7 +81,7 @@ test("review queue reconciles approvals created before automatic promotion", () 
   const result = context.procurementListQueue_({});
 
   assert.equal(masterRows.length, 1);
-  assert.equal(request.MASTER_REQUEST_ID, "PROC-2026-0001");
+  assert.equal(request.MASTER_REQUEST_ID, "NPR-2026-0001");
   assert.equal(request.CURRENT_STATUS, "IN_PROCESS");
   assert.equal(result.data.length, 0, "reconciled request should leave the review queue");
 });
@@ -143,13 +143,13 @@ for (const action of ["approveRequest", "submitReview"]) {
     assert.equal(masterRows.length, 1);
     const master = Object.fromEntries(headers.map((header, index) => [header, masterRows[0][index]]));
     assert.equal(master["Request ID Asli"], "NPR-2026-0001");
-    assert.equal(master["Nomor Request"], "PROC-2026-0001");
+    assert.equal(master["Nomor Request"], "NPR-2026-0001");
     assert.equal(master.Status, "Ongoing");
     assert.equal(master["Group/Div"], "Information Technology");
     assert.equal(master["Lvl Jabatan"], "Officer");
     assert.equal(master.Lokasi, "Head Office");
     assert.equal(Object.prototype.toString.call(master["Tanggal Request"]), "[object Date]");
-    assert.equal(request.MASTER_REQUEST_ID, "PROC-2026-0001");
+    assert.equal(request.MASTER_REQUEST_ID, "NPR-2026-0001");
     assert.equal(request.CURRENT_STATUS, "IN_PROCESS");
     assert.deepEqual(logs.map(log => log.eventType), ["REQUEST_APPROVED", "PROMOTED_TO_PROCUREMENT"]);
 

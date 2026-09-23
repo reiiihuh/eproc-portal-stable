@@ -22,7 +22,7 @@ export function KartuUnggahDokumen({
           <b className={item.required ? "required" : "optional"}>{item.required ? "Wajib" : "Opsional"}</b>
         </div>
         <small className="document-description">{documentDescription(item.type)}</small>
-        {file && <span>{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</span>}
+        {file && <span className="document-file-name" title={file.name}>{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</span>}
         <div className="doclinks">
           {item.templateUrl && <a href={item.templateUrl} target="_blank" rel="noreferrer"><Download size={14} /> Template</a>}
           {item.guideUrl && <a href={item.guideUrl} target="_blank" rel="noreferrer"><Info size={14} /> Petunjuk</a>}
@@ -37,6 +37,7 @@ export function KartuUnggahDokumen({
           accept={acceptedFileTypes}
           onChange={(event) => {
             const next = event.target.files?.[0];
+            event.target.value = "";
             if (next) onFile(next);
           }}
         />
@@ -44,4 +45,3 @@ export function KartuUnggahDokumen({
     </div>
   );
 }
-
