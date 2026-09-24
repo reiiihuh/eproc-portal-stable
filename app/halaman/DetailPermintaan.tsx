@@ -25,8 +25,10 @@ export function DetailPermintaan({
   const editable = ["Draft", "Need Clarification", "Rejected"].includes(request.status);
   const isRevisionRequired = (document: PortalDocument) =>
     document.status.trim().toUpperCase().replace(/[ -]+/g, "_") === "REVISION_REQUIRED";
+  const optionalDuringReview = (document: PortalDocument) =>
+    !document.required && ["Submitted", "Procurement Review"].includes(request.status);
   const canReplace = (document: PortalDocument) =>
-    editable || (request.status === "Procurement Review" && isRevisionRequired(document));
+    editable || optionalDuringReview(document) || (request.status === "Procurement Review" && isRevisionRequired(document));
   const revisionDocuments = request.documents.filter(isRevisionRequired);
   const clarificationNote = [...request.logs]
     .reverse()
